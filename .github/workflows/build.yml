@@ -27,7 +27,16 @@ jobs:
             fs.writeFileSync('main.js', d.main);
             fs.writeFileSync('preload.js', d.preload);
             fs.writeFileSync('splash.html', d.splash);
-            fs.writeFileSync('package.json', d.packageJson);
+            
+            // Handle Icon for Windows
+            let pkg = JSON.parse(d.packageJson);
+            if (d.iconBase64) {
+              const iconBuf = Buffer.from(d.iconBase64, 'base64');
+              fs.writeFileSync('icon' + d.iconExt, iconBuf);
+              // Update package.json to point to the icon
+              pkg.build.win.icon = 'icon' + d.iconExt;
+            }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
           npm install
           npx electron-builder --win portable
@@ -52,37 +61,34 @@ jobs:
 
       - name: Build Android APK
         run: |
-          # 1. Setup Source Code
+          # 1. Setup Source Code and Icon
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
           node -e "
             const fs = require('fs');
             const d = JSON.parse(fs.readFileSync('data.json'));
             fs.writeFileSync('index.html', d.html);
+            if (d.iconBase64) {
+              fs.writeFileSync('app_icon' + d.iconExt, Buffer.from(d.iconBase64, 'base64'));
+            }
           "
           
           # 2. Install Cordova
           npm install -g cordova
           
-          # 3. Create Android Project
-          # We use the safeFileName sent from your server for the app name
+          # 3. Create Project
           cordova create build_android com.architect.game "${{ github.event.client_payload.safeFileName }}"
           cp index.html build_android/www/
-          cd build_android
           
-          # 4. Prepare and Build
-          cordova platform add android
-          
-          # FORCE APK OUTPUT (Prevents the .aab error)
-          cordova build android --release -- --packageType=apk
-          
-          # 5. Locate the APK and Send back to Render
-          # We search recursively for any .apk in the build output folder
-          APK_PATH=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          
-          if [ -z "$APK_PATH" ]; then
-            echo "ERROR: APK file was not generated!"
-            exit 1
+          # 4. Inject Icon into Cordova config.xml
+          if [ -f "app_icon.png" ] || [ -f "app_icon.jpg" ]; then
+            cp app_icon* build_android/www/icon.png
+            sed -i '/<\/widget>/i \    <platform name="android"><icon src="www/icon.png" \/><\/platform>' build_android/config.xml
           fi
           
-          echo "Found APK at: $APK_PATH"
+          cd build_android
+          cordova platform add android
+          cordova build android --release -- --packageType=apk
+          
+          # 5. Locate and Upload
+          APK_PATH=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           curl -X POST -F "exe=@$APK_PATH" "${{ github.event.client_payload.uploadUrl }}"
