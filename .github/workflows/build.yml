@@ -28,12 +28,10 @@ jobs:
             fs.writeFileSync('preload.js', d.preload);
             fs.writeFileSync('splash.html', d.splash);
             
-            // Handle Icon for Windows
             let pkg = JSON.parse(d.packageJson);
             if (d.iconBase64) {
               const iconBuf = Buffer.from(d.iconBase64, 'base64');
               fs.writeFileSync('icon' + d.iconExt, iconBuf);
-              // Update package.json to point to the icon
               pkg.build.win.icon = 'icon' + d.iconExt;
             }
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
@@ -61,7 +59,7 @@ jobs:
 
       - name: Build Android APK
         run: |
-          # 1. Setup Source Code and Icon
+          # 1. Setup Source and Icon
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
           node -e "
             const fs = require('fs');
@@ -79,16 +77,28 @@ jobs:
           cordova create build_android com.architect.game "${{ github.event.client_payload.safeFileName }}"
           cp index.html build_android/www/
           
-          # 4. Inject Icon into Cordova config.xml
-          if [ -f "app_icon.png" ] || [ -f "app_icon.jpg" ]; then
+          # 4. Inject Icon and Preferences into config.xml
+          if [ -f "app_icon.png" ] || [ -f "app_icon.jpg" ] || [ -f "app_icon.jpeg" ]; then
+            # Rename whatever icon we got to a standard name
             cp app_icon* build_android/www/icon.png
+            # Inject the icon tag and a preference for better compatibility
             sed -i '/<\/widget>/i \    <platform name="android"><icon src="www/icon.png" \/><\/platform>' build_android/config.xml
+            sed -i '/<\/widget>/i \    <preference name="Orientation" value="landscape" \/>' build_android/config.xml
           fi
           
           cd build_android
           cordova platform add android
-          cordova build android --release -- --packageType=apk
           
-          # 5. Locate and Upload
-          APK_PATH=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          # 5. Build DEBUG APK (This auto-signs for easy installation)
+          cordova build android --debug -- --packageType=apk
+          
+          # 6. Locate the DEBUG apk and upload
+          APK_PATH=$(find platforms/android/app/build/outputs/apk/debug/ -name "*.apk" | head -n 1)
+          
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: APK not found!"
+            exit 1
+          fi
+          
+          echo "Uploading: $APK_PATH"
           curl -X POST -F "exe=@$APK_PATH" "${{ github.event.client_payload.uploadUrl }}"
