@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flappy Bird</title>
+    <style>
+        * { margin: 0; padding: 0; overflow: hidden; }
+        canvas { display: block; background: linear-gradient(180deg, #87CEEB 0%, #E0F7FF 100%); }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let frames = 0;
+        let score = 0;
+        let gameState = 'start';
+        let particles = [];
+        let clouds = [];
+        let trees = [];
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initClouds();
+            initTrees();
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function initClouds() {
+            clouds = [];
+            for (let i = 0; i < 8; i++) {
+                clouds.push({
+                    x: Math.random() * width,
+                    y: Math.random() * (height * 0.4),
+                    scale: 0.8 + Math.random() * 0.6,
+                    speed: 0.3 + Math.random() * 0.4
+                });
+            }
+        }
+
+        function initTrees() {
+            trees = [];
+            for (let i = 0; i < 15; i++) {
+                trees.push({
+                    x: Math.random() * width,
+                    scale: 0.7 + Math.random() * 0.8,
+                    type: Math.floor(Math.random() * 3)
+                });
+            }
+        }
+
+        function drawSun() {
+            const sunX = width * 0.85;
+            const sunY = height * 0.15;
+            const sunRadius = 40;
+            
+            // Sun glow
+            const glowGrad = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.5, sunX, sunY, sunRadius * 2);
+            glowGrad.addColorStop(0, 'rgba(255, 255, 200, 0.8)');
+            glowGrad.addColorStop(1, 'rgba(255, 200, 50, 0)');
+            ctx.fillStyle = glowGrad;
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunRadius * 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Sun body
+            const sunGrad = ctx.createRadialGradient(sunX - 10, sunY - 10, 0, sunX, sunY, sunRadius);
+            sunGrad.addColorStop(0, '#FFF59D');
+            sunGrad.addColorStop(0.7, '#FFEB3B');
+            sunGrad.addColorStop(1, '#FF9800');
+            ctx.fillStyle = sunGrad;
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Sun rays
+            ctx.strokeStyle = 'rgba(255, 235, 59, 0.6)';
+            ctx.lineWidth = 3;
+            for (let i = 0; i < 12; i++) {
+                const angle = (i / 12) * Math.PI * 2 + frames * 0.01;
+                const innerR = sunRadius + 5;
+                const outerR = sunRadius + 15;
+                ctx.beginPath();
+                ctx.moveTo(sunX + Math.cos(angle) * innerR, sunY + Math.sin(angle) * innerR);
+                ctx.lineTo(sunX + Math.cos(angle) * outerR, sunY + Math.sin(angle) * outerR);
+                ctx.stroke();
+            }
+        }
+
+        function drawCloud(x, y, scale) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.arc(x, y, 30 * scale, 0, Math.PI * 2);
+            ctx.arc(x + 25 * scale, y - 10 * scale, 35 * scale, 0, Math.PI * 2);
+            ctx.arc(x + 50 * scale, y, 30 * scale, 0, Math.PI * 2);
+            ctx.arc(x + 25 * scale, y + 10 * scale, 25 * scale, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Cloud shadow
+            ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x + 10 * scale, y + 15 * scale, 20 * scale, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawClouds() {
+            clouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x < -150) {
+                    cloud.x = width + 100;
+                    cloud.y = Math.random() * (height * 0.4);
+                }
+                drawCloud(cloud.x, cloud.y, cloud.scale);
+            });
+        }
+
+        function drawTree(x, scale, type) {
+            const groundY = height - 50;
+            const treeHeight = 80 * scale;
+            const trunkWidth = 12 * scale;
+            const trunkHeight = 25 * scale;
+            
+            // Trunk
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(x - trunkWidth/2, groundY - trunkHeight, trunkWidth, trunkHeight);
+            
+            // Leaves based on type
+            ctx.fillStyle = type === 0 ? '#2E7D32' : type === 1 ? '#388E3C' : '#1B5E20';
+            
+            if (type === 0) {
+                // Pine tree (triangular)
+                ctx.beginPath();
+                ctx.moveTo(x - 30 * scale, groundY - trunkHeight);
+                ctx.lineTo(x, groundY - trunkHeight - treeHeight);
+                ctx.lineTo(x + 30 * scale, groundY - trunkHeight);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Second layer
+                ctx.beginPath();
+                ctx.moveTo(x - 25 * scale, groundY - trunkHeight - 20 * scale);
+                ctx.lineTo(x, groundY - trunkHeight - treeHeight + 15 * scale);
+                ctx.lineTo(x + 25 * scale, groundY - trunkHeight - 20 * scale);
+                ctx.closePath();
+                ctx.fill();
+            } else if (type === 1) {
+                // Round tree
+                ctx.beginPath();
+                ctx.arc(x, groundY - trunkHeight - treeHeight/2, treeHeight/2, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Deciduous tree
+                ctx.beginPath();
+                ctx.arc(x, groundY - trunkHeight - treeHeight/2, treeHeight/2.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x - 15 * scale, groundY - trunkHeight - treeHeight/3, treeHeight/3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x + 15 * scale, groundY - trunkHeight - treeHeight/3, treeHeight/3.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawTrees() {
+            trees.forEach(tree => {
+                tree.x -= 1.5;
+                if (tree.x < -100) {
+                    tree.x = width + 100;
+                    tree.scale = 0.7 + Math.random() * 0.8;
+                    tree.type = Math.floor(Math.random() * 3);
+                }
+                drawTree(tree.x, tree.scale, tree.type);
+            });
+        }
+
+        const bird = {
+            x: width * 0.2,
+            y: height / 2,
+            radius: 20,
+            velocity: 0,
+            gravity: 0.5,
+            jump: -10,
+            rotation: 0,
+            color: '#FFD700',
+            update: function() {
+                this.velocity += this.gravity;
+                this.y += this.velocity;
+                this.rotation = Math.min(Math.max(this.velocity * 3, -30), 90);
+                if (this.y < this.radius) {
+                    this.y = this.radius;
+                    this.velocity = 0;
+                }
+            },
+            draw: function() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation * Math.PI / 180);
+                
+                // Body gradient
+                const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
+                grad.addColorStop(0, '#FFEB3B');
+                grad.addColorStop(1, '#FF9800');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Wing
+                ctx.fillStyle = '#FF5722';
+                ctx.beginPath();
+                ctx.ellipse(-5, 5, 12, 8, Math.PI / 4, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Eye
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(8, -5, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(10, -5, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Beak
+                ctx.fillStyle = '#FF5722';
+                ctx.beginPath();
+                ctx.moveTo(10, 2);
+                ctx.lineTo(25, 8);
+                ctx.lineTo(10, 14);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            },
+            flap: function() {
+                this.velocity = this.jump;
+                for (let i = 0; i < 10; i++) {
+                    particles.push({
+                        x: this.x - 10,
+                        y: this.y,
+                        vx: Math.random() * -4 - 1,
+                        vy: Math.random() * 2 - 1,
+                        life: 30,
+                        color: `hsl(${Math.random() * 60 + 30}, 100%, 70%)`
+                    });
+                }
+            }
+        };
+
+        const pipes = {
+            gap: 200,
+            width: 80,
+            speed: 3,
+            list: [],
+            update: function() {
+                if (frames % 100 === 0) {
+                    const topHeight = Math.random() * (height - this.gap - 100) + 50;
+                    this.list.push({
+                        x: width,
+                        topHeight: topHeight,
+                        bottomY: topHeight + this.gap,
+                        passed: false
+                    });
+                }
+                for (let i = this.list.length - 1; i >= 0; i--) {
+                    this.list[i].x -= this.speed;
+                    if (this.list[i].x + this.width < 0) {
+                        this.list.splice(i, 1);
+                    }
+                }
+            },
+            draw: function() {
+                this.list.forEach(pipe => {
+                    // Top pipe
+                    const topGrad = ctx.createLinearGradient(pipe.x, 0, pipe.x + this.width, 0);
+                    topGrad.addColorStop(0, '#4CAF50');
+                    topGrad.addColorStop(0.5, '#8BC34A');
+                    topGrad.addColorStop(1, '#4CAF50');
+                    ctx.fillStyle = topGrad;
+                    ctx.fillRect(pipe.x, 0, this.width, pipe.topHeight);
+                    
+                    // Top cap
+                    ctx.fillStyle = '#388E3C';
+                    ctx.fillRect(pipe.x - 5, pipe.topHeight - 20, this.width + 10, 20);
+                    
+                    // Bottom pipe
+                    ctx.fillStyle = topGrad;
+                    ctx.fillRect(pipe.x, pipe.bottomY, this.width, height - pipe.bottomY);
+                    
+                    // Bottom cap
+                    ctx.fillStyle = '#388E3C';
+                    ctx.fillRect(pipe.x - 5, pipe.bottomY, this.width + 10, 20);
+                });
+            },
+            checkCollision: function() {
+                for (let pipe of this.list) {
+                    if (bird.x + bird.radius > pipe.x && 
+                        bird.x - bird.radius < pipe.x + this.width) {
+                        if (bird.y - bird.radius < pipe.topHeight || 
+                            bird.y + bird.radius > pipe.bottomY) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+        };
+
+        const ground = {
+            y: height - 50,
+            draw: function() {
+                // Ground base
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(0, this.y, width, height - this.y);
+                
+                // Grass
+                ctx.fillStyle = '#7CB342';
+                ctx.fillRect(0, this.y, width, 10);
+                
+                // Pattern
+                ctx.strokeStyle = '#6B8E23';
+                ctx.lineWidth = 2;
+                const groundOffset = frames * 2;
+                for (let i = 0; i < width; i += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(i - groundOffset, this.y + 10);
+                    ctx.lineTo(i + 20 - groundOffset, this.y + 30);
+                    ctx.stroke();
+                }
+            }
+        };
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].x += particles[i].vx;
+                particles[i].y += particles[i].vy;
+                particles[i].life--;
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life / 30;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+        }
+
+        function drawScore() {
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.strokeText(score.toString(), width / 2, 60);
+            ctx.fillText(score.toString(), width / 2, 60);
+        }
+
+        function drawStartScreen() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, width, height);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('FLAPPY BIRD', width / 2, height / 2 - 50);
+            
+            ctx.font = '24px Arial';
+            ctx.fillText('Click or Press SPACE to Start', width / 2, height / 2 + 20);
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, width, height);
+            
+            ctx.fillStyle = '#FF5252';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', width / 2, height / 2 - 50);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '32px Arial';
+            ctx.fillText(`Score: ${score}`, width / 2, height / 2 + 20);
+            ctx.fillText('Click or Press SPACE to Restart', width / 2, height / 2 + 70);
+        }
+
+        function resetGame() {
+            bird.y = height / 2;
+            bird.velocity = 0;
+            bird.rotation = 0;
+            pipes.list = [];
+            score = 0;
+            frames = 0;
+            particles = [];
+            gameState = 'playing';
+        }
+
+        function update() {
+            if (gameState !== 'playing') return;
+            
+            frames++;
+            bird.update();
+            pipes.update();
+            updateParticles();
+            
+            // Score
+            pipes.list.forEach(pipe => {
+                if (!pipe.passed && pipe.x + pipes.width < bird.x) {
+                    pipe.passed = true;
+                    score++;
+                }
+            });
+            
+            // Collision
+            if (bird.y + bird.radius > ground.y || 
+                bird.y - bird.radius < 0 || 
+                pipes.checkCollision()) {
+                gameState = 'gameover';
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+            
+            // Background elements
+            drawSun();
+            drawClouds();
+            drawTrees();
+            
+            // Game elements
+            pipes.draw();
+            ground.draw();
+            bird.draw();
+            drawParticles();
+            drawScore();
+            
+            if (gameState === 'start') drawStartScreen();
+            if (gameState === 'gameover') drawGameOver();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        function handleInput() {
+            if (gameState === 'start' || gameState === 'gameover') {
+                resetGame();
+            } else if (gameState === 'playing') {
+                bird.flap();
+            }
+        }
+
+        window.addEventListener('keydown', e => {
+            if (e.code === 'Space') handleInput();
+        });
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', e => {
+            e.preventDefault();
+            handleInput();
+        });
+
+        loop();
+    </script>
+</body>
+</html>
