@@ -28,43 +28,52 @@ jobs:
           EXE_PATH=$(ls dist/*.exe | head -n 1)
           curl -X POST -F "exe=@$EXE_PATH" "${{ github.event.client_payload.uploadUrl }}"
 
-  build-android:
+    build-android:
     if: github.event.client_payload.platform == 'android'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
           java-version: '17'
           distribution: 'temurin'
-      - name: Install Bubblewrap (PWA to APK)
-        run: npm install -g @bubblewrap/cli
-      
+          
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Build APK
         run: |
-          # Fetch the HTML source
+          # 1. Setup Source
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
-          
-          # For Android, we package the HTML as a TWA (Trusted Web Activity)
-          # This uses Bubblewrap to wrap your single-file HTML into a real APK
           node -e "
             const fs = require('fs');
             const d = JSON.parse(fs.readFileSync('data.json'));
             fs.writeFileSync('index.html', d.html);
           "
           
-          # Note: Bubblewrap usually requires a manifest. 
-          # For a quick single-file build, we use a simplified CLI approach
-          # In a production environment, you'd use a more robust Cordova/Capacitor setup.
-          # For now, we will use a placeholder tool or Cordova.
+          # 2. Install Tools
           npm install -g cordova
-          cordova create build_android com.architect.game "Game"
+          
+          # 3. Create Project
+          cordova create build_android com.architect.game "${{ github.event.client_payload.safeFileName }}"
           cp index.html build_android/www/
           cd build_android
-          cordova platform add android
-          cordova build android --release --device
           
-          APK_PATH=$(find platforms/android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          # 4. Add Platform and Build APK (not Bundle)
+          cordova platform add android
+          # The --label ensures we get an APK instead of an AAB
+          cordova build android --release -- --packageType=apk
+          
+          # 5. Find and Upload (Enhanced search)
+          # We look for any .apk in the build folder
+          APK_PATH=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK not found"
+            exit 1
+          fi
+          
           curl -X POST -F "exe=@$APK_PATH" "${{ github.event.client_payload.uploadUrl }}"
