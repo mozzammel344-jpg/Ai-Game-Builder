@@ -62,26 +62,16 @@ app.post('/user-data', (req, res) => res.json({ projects: accounts.getProjects(r
 app.post('/generate-game', async (req, res) => {
     const { username, prompt, isUpdate, currentFile, gameName, patchPrompt } = req.body;
     
-    // ENHANCED SYSTEM PROMPT FOR ANDROID ASPECT RATIO AND 2D MODELS
-    let systemPrompt = `You are a professional 2D game developer.
-    TASK: Create a SINGLE-FILE HTML5 2D game.
-    
-    1. ART/MODELS: Use high-quality 2D sprites/models. Search or use public CDNs for assets (e.g., OpenGameArt, Kenney.nl, or placeholder pixel art URLs). Do NOT create a website; create an immersive game world.
-    
-    2. SCREEN/ASPECT RATIO: 
-       - The game MUST maintain a 16:9 PC aspect ratio.
-       - Use a CSS container to "Letterbox" the game if the mobile screen is too tall.
-       - Center the game canvas/container perfectly.
-       - Scale to fill the screen while maintaining the ratio.
-    
-    3. MOBILE FEATURES: 
-       - Include large touch-friendly controls.
-       - Use 'navigator.vibrate(40)' for impacts/feedback.
-       - Include an 'Exit' button calling 'window.exitApp()'.
-    
-    4. STYLE: No 3D. Pure 2D (Side-scroller, Top-down, or Platformer).
-    
-    Return ONLY raw code. No markdown, no talk.`;
+    // UPGRADED SYSTEM PROMPT
+    let systemPrompt = `You are a professional game developer. Output MUST be a complete, SINGLE-FILE HTML5 game. Return ONLY raw code. No explanations, no markdown backticks. 
+    CRITICAL CONSTRAINTS:
+    1. STRICTLY 2D ONLY: You must ONLY create 2D games using HTML5 Canvas or 2D DOM elements. ABSOLUTELY NO WebGL, Three.js, Babylon.js, or 3D math. If the user asks for 3D, make a top-down or side-scrolling 2D version instead.
+    2. ASSETS & GRAPHICS: Do NOT hallucinate or guess random image URLs from the internet (they will 404 and break the game). Instead, use highly polished programmatic 2D art (Canvas API gradients, glowing shadows, geometric shapes) OR use reliable placeholder CDNs only if absolutely necessary.
+    3. ASPECT RATIO & MOBILE SCALING: The game MUST look like a PC screen on mobile devices. 
+       - Inject this meta tag: <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+       - Wrap the game canvas inside a container with CSS: 'aspect-ratio: 16/9; max-width: 100vw; max-height: 100vh; object-fit: contain; margin: 0 auto; display: block; background: #000;'.
+       - Ensure the internal game logic calculates positions based on this 16:9 ratio so things don't look overly huge on an Android phone.
+    4. Include an 'Exit Game' button in the UI that calls 'window.exitApp()' so it works seamlessly on desktop/Android builds.`;
     
     let userPrompt = "";
     let finalFileName = "";
@@ -91,11 +81,11 @@ app.post('/generate-game', async (req, res) => {
         if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found." });
         const oldCode = fs.readFileSync(filePath, 'utf8');
         finalFileName = currentFile; 
-        userPrompt = `Update this 2D game code: ${oldCode}. Instruction: ${patchPrompt}. Ensure aspect ratio remains 16:9 PC style.`;
+        userPrompt = `Update this code: ${oldCode}. Instruction: ${patchPrompt}`;
     } else {
         const safeName = (gameName || 'world').replace(/[^a-z0-9]/gi, '_').toLowerCase();
         finalFileName = `${safeName}_${Date.now()}.html`;
-        userPrompt = `Build a high-quality 2D game: ${gameName}. Concept: ${prompt}. Use high-quality sprites from the web.`;
+        userPrompt = `Build a new game: ${gameName}. Concept: ${prompt}`;
     }
 
     try {
@@ -127,7 +117,7 @@ app.post('/generate-game', async (req, res) => {
 // --- MULTI-PLATFORM COMPILER QUEUE ---
 app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const { fileName, customName, platform } = req.body;
-    const targetPlatform = platform || 'windows'; 
+    const targetPlatform = platform || 'windows'; // Takes 'android' or 'windows'
     const iconFile = req.file;
 
     if (!fileName) return res.status(400).json({ error: "No file selected." });
@@ -135,6 +125,7 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const jobID = Math.floor(1000000000 + Math.random() * 9000000000).toString();
     const htmlContent = fs.readFileSync(path.join(gamesDir, fileName), 'utf8');
     
+    // EMBEDDED WRAPPER SCRIPTS
     const mainJsContent = `
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -176,6 +167,7 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') ipcRenderer.
         .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
     </style></head><body><div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div></body></html>`;
 
+    // Important: We store the platform here so the upload route knows what extension to use
     activeJobsData[jobID] = {
         html: htmlContent, 
         main: mainJsContent,
@@ -235,12 +227,14 @@ async function processQueue() {
 
 app.get('/api/internal/download-source/:id', (req, res) => res.json(activeJobsData[req.params.id] || {}));
 
+// Handle build upload from GitHub
 app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) => {
     const jobID = req.params.id;
     const buildFile = req.file;
     const jobData = activeJobsData[jobID];
 
     if (buildFile && jobData) {
+        // DETECT EXTENSION BASED ON PLATFORM
         const extension = jobData.platform === 'android' ? '.apk' : '.exe';
         const finalName = `${jobData.safeFileName}_${jobID}${extension}`;
         
@@ -252,7 +246,7 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
         setTimeout(() => {
             const p = path.join(buildsDir, finalName);
             if (fs.existsSync(p)) fs.unlinkSync(p);
-        }, 300000); 
+        }, 300000); // 5 minutes to download
     }
     
     delete activeJobsData[jobID];
