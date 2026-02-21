@@ -8,9 +8,15 @@ jobs:
     if: github.event.client_payload.platform == 'windows'
     runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
-      - name: Build EXE
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Build Windows EXE
         shell: bash
         run: |
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
@@ -28,25 +34,25 @@ jobs:
           EXE_PATH=$(ls dist/*.exe | head -n 1)
           curl -X POST -F "exe=@$EXE_PATH" "${{ github.event.client_payload.uploadUrl }}"
 
-    build-android:
+  build-android:
     if: github.event.client_payload.platform == 'android'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
-        
+
       - name: Set up Java
         uses: actions/setup-java@v3
         with:
           java-version: '17'
           distribution: 'temurin'
-          
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build APK
+      - name: Build Android APK
         run: |
-          # 1. Setup Source
+          # 1. Setup Source Code
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
           node -e "
             const fs = require('fs');
@@ -54,26 +60,29 @@ jobs:
             fs.writeFileSync('index.html', d.html);
           "
           
-          # 2. Install Tools
+          # 2. Install Cordova
           npm install -g cordova
           
-          # 3. Create Project
+          # 3. Create Android Project
+          # We use the safeFileName sent from your server for the app name
           cordova create build_android com.architect.game "${{ github.event.client_payload.safeFileName }}"
           cp index.html build_android/www/
           cd build_android
           
-          # 4. Add Platform and Build APK (not Bundle)
+          # 4. Prepare and Build
           cordova platform add android
-          # The --label ensures we get an APK instead of an AAB
+          
+          # FORCE APK OUTPUT (Prevents the .aab error)
           cordova build android --release -- --packageType=apk
           
-          # 5. Find and Upload (Enhanced search)
-          # We look for any .apk in the build folder
+          # 5. Locate the APK and Send back to Render
+          # We search recursively for any .apk in the build output folder
           APK_PATH=$(find platforms/android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
           
           if [ -z "$APK_PATH" ]; then
-            echo "Error: APK not found"
+            echo "ERROR: APK file was not generated!"
             exit 1
           fi
           
+          echo "Found APK at: $APK_PATH"
           curl -X POST -F "exe=@$APK_PATH" "${{ github.event.client_payload.uploadUrl }}"
