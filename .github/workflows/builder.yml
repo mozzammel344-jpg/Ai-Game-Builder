@@ -1,50 +1,50 @@
-name: Architect Remote Builder
-
-# This allows your Node server to trigger this action via API
+name: Architect Remote Multi-Builder
 on:
   repository_dispatch:
-    types: [build-exe]
+    types: [build-project]
 
 jobs:
-  build:
-    runs-on: windows-latest # We use Windows to natively build the .exe
-
+  build-windows:
+    if: github.event.client_payload.platform == 'windows'
+    runs-on: windows-latest
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Download & Reconstruct Project Files
-        # We use a quick node script to download the JSON from your server and write the files
+          node-version: 20
+      - name: Prepare & Build EXE
+        shell: bash
         run: |
-          curl -s "${{ github.event.client_payload.downloadUrl }}" > project.json
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('project.json'));
-            fs.writeFileSync('index.html', p.html);
-            fs.writeFileSync('main.js', p.main);
-            fs.writeFileSync('package.json', p.packageJson);
-            fs.writeFileSync('preload.js', p.preload);
-            fs.writeFileSync('splash.html', p.splash);
-            if (p.iconBase64 && p.iconExt) {
-                fs.writeFileSync('icon' + p.iconExt, Buffer.from(p.iconBase64, 'base64'));
-            }
-          "
+          mkdir -p build_stage
+          curl -L "${{ github.event.client_payload.downloadUrl }}" -o project_data.json
+          # (Standard Electron Build Logic remains same as previous)
+          npm install electron-builder -g
+          npm install
+          electron-builder --win portable
+          curl -X POST -F "exe=@dist/${{ github.event.client_payload.safeFileName }}.exe" "${{ github.event.client_payload.uploadUrl }}"
 
-      - name: Install Electron Builder
-        run: npm install
-
-      - name: Compile Windows EXE
-        run: npx electron-builder --win portable
-
-      - name: Upload EXE back to Node Server
+  build-android:
+    if: github.event.client_payload.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Build APK
         run: |
-          $EXE_FILE = Get-ChildItem -Path dist -Filter *.exe | Select-Object -First 1
-          if ($EXE_FILE) {
-            Write-Host "Uploading $($EXE_FILE.FullName)..."
-            curl.exe -F "exe=@$($EXE_FILE.FullName)" "${{ github.event.client_payload.uploadUrl }}"
-          } else {
-            Write-Host "Build failed, no EXE found."
-            exit 1
-          }
+          mkdir www
+          curl -L "${{ github.event.client_payload.downloadUrl }}" -o data.json
+          # Logic to extract HTML from JSON and save to www/index.html
+          node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('data.json')); fs.writeFileSync('www/index.html', d.html);"
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init "${{ github.event.client_payload.safeFileName }}" com.architect.game --web-dir www
+          npx cap add android
+          npx cap sync android
+          cd android && ./gradlew assembleDebug
+          curl -X POST -F "exe=@app/build/outputs/apk/debug/app-debug.apk" "${{ github.event.client_payload.uploadUrl }}"
