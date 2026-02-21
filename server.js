@@ -12,7 +12,7 @@ const app = express();
 const server = http.createServer(app); 
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Storage config: GitHub will send either .exe or .apk back here
+// Storage config
 const uploadBuild = multer({ dest: 'build_output/' });
 const uploadIcon = multer({ dest: 'temp_uploads/' });
 
@@ -117,10 +117,26 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const jobID = Math.floor(1000000000 + Math.random() * 9000000000).toString();
     const htmlContent = fs.readFileSync(path.join(gamesDir, fileName), 'utf8');
     
-    // Load local wrapper files
-    const mainJsContent = fs.readFileSync(path.join(__dirname, 'main-electron.js'), 'utf8');
-    const preloadJsContent = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8');
-    
+    // EMBEDDED WRAPPER SCRIPTS (Fixed the ENOENT error)
+    const mainJsContent = `
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+function createWindow() {
+  const splash = new BrowserWindow({ width: 600, height: 400, transparent: true, frame: false, alwaysOnTop: true, center: true });
+  splash.loadFile(path.join(__dirname, 'splash.html'));
+  const win = new BrowserWindow({ width: 1280, height: 720, show: false, fullscreen: true, autoHideMenuBar: true, backgroundColor: '#000', webPreferences: { nodeIntegration: false, contextIsolation: false, preload: path.join(__dirname, 'preload.js') } });
+  win.loadFile(path.join(__dirname, 'index.html'));
+  win.once('ready-to-show', () => { setTimeout(() => { if (!splash.isDestroyed()) splash.close(); win.show(); win.focus(); }, 3000); });
+  ipcMain.on('exit-app', () => { app.quit(); });
+}
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });`;
+
+    const preloadJsContent = `
+const { ipcRenderer } = require('electron');
+window.exitApp = () => { ipcRenderer.send('exit-app'); };
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') ipcRenderer.send('exit-app'); });`;
+
     let iconBase64 = null, iconExt = null;
     if (iconFile) {
         iconExt = path.extname(iconFile.originalname) || '.png';
@@ -131,26 +147,17 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const safeTitle = (customName || "Architect_Game").trim();
     const safeFileName = safeTitle.replace(/[^a-z0-9 _-]/gi, '').replace(/\s+/g, '_');
 
-    // HIGH GRAPHICS SPLASH HTML
     const stylishSplash = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body { margin: 0; padding: 0; overflow: hidden; background: rgba(0,0,0,0); font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
-            .card { width: 500px; height: 300px; background: rgba(20, 20, 25, 0.95); border: 2px solid #55ff55; border-radius: 15px; box-shadow: 0 0 30px rgba(85, 255, 85, 0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; }
-            .logo { font-size: 32px; font-weight: bold; color: #fff; letter-spacing: 5px; text-transform: uppercase; text-shadow: 0 0 10px #55ff55; margin-bottom: 10px; }
-            .sub { color: #55ff55; font-size: 10px; letter-spacing: 3px; margin-bottom: 30px; opacity: 0.8; }
-            .loader { width: 250px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; overflow: hidden; }
-            .bar { width: 40%; height: 100%; background: #55ff55; position: absolute; left: -40%; animation: load 1.5s infinite ease-in-out; box-shadow: 0 0 10px #55ff55; }
-            @keyframes load { 0% { left: -40%; } 100% { left: 100%; } }
-            .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
-        </style>
-    </head>
-    <body>
-        <div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div>
-    </body>
-    </html>`;
+    <!DOCTYPE html><html><head><style>
+        body { margin: 0; padding: 0; overflow: hidden; background: rgba(0,0,0,0); font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        .card { width: 500px; height: 300px; background: rgba(20, 20, 25, 0.95); border: 2px solid #55ff55; border-radius: 15px; box-shadow: 0 0 30px rgba(85, 255, 85, 0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+        .logo { font-size: 32px; font-weight: bold; color: #fff; letter-spacing: 5px; text-transform: uppercase; text-shadow: 0 0 10px #55ff55; margin-bottom: 10px; }
+        .sub { color: #55ff55; font-size: 10px; letter-spacing: 3px; margin-bottom: 30px; opacity: 0.8; }
+        .loader { width: 250px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; overflow: hidden; }
+        .bar { width: 40%; height: 100%; background: #55ff55; position: absolute; left: -40%; animation: load 1.5s infinite ease-in-out; box-shadow: 0 0 10px #55ff55; }
+        @keyframes load { 0% { left: -40%; } 100% { left: 100%; } }
+        .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
+    </style></head><body><div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div></body></html>`;
 
     activeJobsData[jobID] = {
         html: htmlContent, 
@@ -216,16 +223,15 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
     const buildFile = req.file;
     const jobData = activeJobsData[jobID];
 
-    if (buildFile && jobData) {
-        const ext = jobData.platform === 'android' ? '.apk' : '.exe';
-        const finalName = `${jobData.safeFileName}_${jobID}${ext}`;
+    if (buildFile) {
+        const finalName = `${jobData ? jobData.safeFileName : 'game'}_${jobID}.exe`;
         fs.renameSync(buildFile.path, path.join(buildsDir, finalName));
         buildJobs[jobID] = { status: 'ready', file: finalName };
         io.emit('build-complete', { jobID, file: finalName });
         setTimeout(() => {
             const p = path.join(buildsDir, finalName);
             if (fs.existsSync(p)) fs.unlinkSync(p);
-        }, 60000);
+        }, 120000); // 2 minutes to download
     }
     delete activeJobsData[jobID];
     isBuilding = false;
