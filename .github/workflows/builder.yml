@@ -1,0 +1,50 @@
+name: Architect Remote Builder
+
+# This allows your Node server to trigger this action via API
+on:
+  repository_dispatch:
+    types: [build-exe]
+
+jobs:
+  build:
+    runs-on: windows-latest # We use Windows to natively build the .exe
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Download & Reconstruct Project Files
+        # We use a quick node script to download the JSON from your server and write the files
+        run: |
+          curl -s "${{ github.event.client_payload.downloadUrl }}" > project.json
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('project.json'));
+            fs.writeFileSync('index.html', p.html);
+            fs.writeFileSync('main.js', p.main);
+            fs.writeFileSync('package.json', p.packageJson);
+            fs.writeFileSync('preload.js', p.preload);
+            fs.writeFileSync('splash.html', p.splash);
+            if (p.iconBase64 && p.iconExt) {
+                fs.writeFileSync('icon' + p.iconExt, Buffer.from(p.iconBase64, 'base64'));
+            }
+          "
+
+      - name: Install Electron Builder
+        run: npm install
+
+      - name: Compile Windows EXE
+        run: npx electron-builder --win portable
+
+      - name: Upload EXE back to Node Server
+        run: |
+          $EXE_FILE = Get-ChildItem -Path dist -Filter *.exe | Select-Object -First 1
+          if ($EXE_FILE) {
+            Write-Host "Uploading $($EXE_FILE.FullName)..."
+            curl.exe -F "exe=@$($EXE_FILE.FullName)" "${{ github.event.client_payload.uploadUrl }}"
+          } else {
+            Write-Host "Build failed, no EXE found."
+            exit 1
+          }
