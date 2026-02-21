@@ -1,0 +1,58 @@
+name: Build Game EXE
+on:
+  repository_dispatch:
+    types: [build-project]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Prepare Source
+        shell: bash
+        run: |
+          # Fetch the source data from your Render server
+          curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
+          
+          # Extract files using node (built-in)
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('data.json', 'utf8'));
+            fs.writeFileSync('index.html', data.html);
+            fs.writeFileSync('main.js', data.main);
+            fs.writeFileSync('preload.js', data.preload);
+            fs.writeFileSync('splash.html', data.splash);
+            fs.writeFileSync('package.json', data.packageJson);
+            
+            if (data.iconBase64) {
+              fs.writeFileSync('icon' + data.iconExt, Buffer.from(data.iconBase64, 'base64'));
+            }
+          "
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          npm install --save-dev electron-builder
+
+      - name: Build Portable EXE
+        run: |
+          # We use npx to run electron-builder without global install
+          npx electron-builder --win portable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Result to Server
+        shell: bash
+        run: |
+          # Find the generated exe in the dist folder
+          EXE_PATH=$(ls dist/*.exe | head -n 1)
+          
+          # Send it back to your server's upload route
+          curl -X POST -F "exe=@$EXE_PATH" "${{ github.event.client_payload.uploadUrl }}"
