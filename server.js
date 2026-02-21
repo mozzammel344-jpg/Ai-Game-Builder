@@ -61,9 +61,10 @@ app.post('/user-data', (req, res) => res.json({ projects: accounts.getProjects(r
 // --- AI GENERATION SYSTEM ---
 app.post('/generate-game', async (req, res) => {
     const { username, prompt, isUpdate, currentFile, gameName, patchPrompt } = req.body;
-    console.log(`[AI]: ${isUpdate ? 'Updating' : 'Creating'} project: ${gameName}`);
-
-    let systemPrompt = `You are a professional game developer. Output MUST be a complete, SINGLE-FILE HTML5 game. Return ONLY raw code. No explanations, no markdown backticks.`;
+    
+    let systemPrompt = `You are a professional game developer. Output MUST be a complete, SINGLE-FILE HTML5 game. Return ONLY raw code. No explanations, no markdown backticks. 
+    IMPORTANT: Include a 'Exit Game' button in the UI that calls 'window.exitApp()' so it works on desktop builds.`;
+    
     let userPrompt = "";
     let finalFileName = "";
 
@@ -101,7 +102,6 @@ app.post('/generate-game', async (req, res) => {
         res.json({ success: true, fileName: finalFileName });
 
     } catch (err) {
-        console.error("[AI ERROR]:", err.response ? err.response.data : err.message);
         res.status(500).json({ error: "AI Generation Failed." });
     }
 });
@@ -109,14 +109,17 @@ app.post('/generate-game', async (req, res) => {
 // --- MULTI-PLATFORM COMPILER QUEUE ---
 app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const { fileName, customName, platform } = req.body;
-    const targetPlatform = platform || 'windows'; // Default to windows if not sent
+    const targetPlatform = platform || 'windows';
     const iconFile = req.file;
 
     if (!fileName) return res.status(400).json({ error: "No file selected." });
 
     const jobID = Math.floor(1000000000 + Math.random() * 9000000000).toString();
     const htmlContent = fs.readFileSync(path.join(gamesDir, fileName), 'utf8');
+    
+    // Load local wrapper files
     const mainJsContent = fs.readFileSync(path.join(__dirname, 'main-electron.js'), 'utf8');
+    const preloadJsContent = fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8');
     
     let iconBase64 = null, iconExt = null;
     if (iconFile) {
@@ -128,10 +131,32 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const safeTitle = (customName || "Architect_Game").trim();
     const safeFileName = safeTitle.replace(/[^a-z0-9 _-]/gi, '').replace(/\s+/g, '_');
 
-    // Store data for GitHub to grab later
+    // HIGH GRAPHICS SPLASH HTML
+    const stylishSplash = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { margin: 0; padding: 0; overflow: hidden; background: rgba(0,0,0,0); font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
+            .card { width: 500px; height: 300px; background: rgba(20, 20, 25, 0.95); border: 2px solid #55ff55; border-radius: 15px; box-shadow: 0 0 30px rgba(85, 255, 85, 0.3); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+            .logo { font-size: 32px; font-weight: bold; color: #fff; letter-spacing: 5px; text-transform: uppercase; text-shadow: 0 0 10px #55ff55; margin-bottom: 10px; }
+            .sub { color: #55ff55; font-size: 10px; letter-spacing: 3px; margin-bottom: 30px; opacity: 0.8; }
+            .loader { width: 250px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; position: relative; overflow: hidden; }
+            .bar { width: 40%; height: 100%; background: #55ff55; position: absolute; left: -40%; animation: load 1.5s infinite ease-in-out; box-shadow: 0 0 10px #55ff55; }
+            @keyframes load { 0% { left: -40%; } 100% { left: 100%; } }
+            .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
+        </style>
+    </head>
+    <body>
+        <div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div>
+    </body>
+    </html>`;
+
     activeJobsData[jobID] = {
         html: htmlContent, 
         main: mainJsContent,
+        preload: preloadJsContent,
+        splash: stylishSplash,
         platform: targetPlatform,
         safeFileName: safeFileName,
         iconBase64, 
@@ -165,7 +190,6 @@ async function processQueue() {
     buildJobs[jobID].status = 'building';
 
     try {
-        console.log(`[GITHUB]: Dispatching ${jobData.platform} build for Job ${jobID}`);
         await axios.post(`https://api.github.com/repos/${GITHUB_REPO}/dispatches`, {
             event_type: 'build-project',
             client_payload: { 
@@ -179,7 +203,6 @@ async function processQueue() {
             headers: { 'Authorization': `token ${GITHUB_PAT}` }
         });
     } catch (err) {
-        console.error("[GITHUB ERROR]:", err.message);
         buildJobs[jobID].status = 'error';
         isBuilding = false;
         processQueue();
@@ -188,7 +211,6 @@ async function processQueue() {
 
 app.get('/api/internal/download-source/:id', (req, res) => res.json(activeJobsData[req.params.id] || {}));
 
-// Handles both .exe and .apk uploads
 app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) => {
     const jobID = req.params.id;
     const buildFile = req.file;
@@ -197,19 +219,14 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
     if (buildFile && jobData) {
         const ext = jobData.platform === 'android' ? '.apk' : '.exe';
         const finalName = `${jobData.safeFileName}_${jobID}${ext}`;
-        
         fs.renameSync(buildFile.path, path.join(buildsDir, finalName));
         buildJobs[jobID] = { status: 'ready', file: finalName };
-        
         io.emit('build-complete', { jobID, file: finalName });
-        
-        // Auto-delete after 1 minute
         setTimeout(() => {
             const p = path.join(buildsDir, finalName);
             if (fs.existsSync(p)) fs.unlinkSync(p);
         }, 60000);
     }
-    
     delete activeJobsData[jobID];
     isBuilding = false;
     res.send('OK');
@@ -218,4 +235,4 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
 
 app.get('/build-status/:id', (req, res) => res.json(buildJobs[req.params.id] || { error: "Not found" }));
 
-server.listen(PORT, () => console.log(`Architect Engine Live on port ${PORT}`));
+server.listen(PORT, () => console.log(`Architect Engine Running on ${PORT}`));
