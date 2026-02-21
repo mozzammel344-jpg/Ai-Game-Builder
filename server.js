@@ -109,7 +109,7 @@ app.post('/generate-game', async (req, res) => {
 // --- MULTI-PLATFORM COMPILER QUEUE ---
 app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const { fileName, customName, platform } = req.body;
-    const targetPlatform = platform || 'windows';
+    const targetPlatform = platform || 'windows'; // Takes 'android' or 'windows'
     const iconFile = req.file;
 
     if (!fileName) return res.status(400).json({ error: "No file selected." });
@@ -117,7 +117,7 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const jobID = Math.floor(1000000000 + Math.random() * 9000000000).toString();
     const htmlContent = fs.readFileSync(path.join(gamesDir, fileName), 'utf8');
     
-    // EMBEDDED WRAPPER SCRIPTS (Fixed the ENOENT error)
+    // EMBEDDED WRAPPER SCRIPTS
     const mainJsContent = `
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -159,12 +159,13 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') ipcRenderer.
         .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
     </style></head><body><div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div></body></html>`;
 
+    // Important: We store the platform here so the upload route knows what extension to use
     activeJobsData[jobID] = {
         html: htmlContent, 
         main: mainJsContent,
         preload: preloadJsContent,
         splash: stylishSplash,
-        platform: targetPlatform,
+        platform: targetPlatform, 
         safeFileName: safeFileName,
         iconBase64, 
         iconExt,
@@ -218,21 +219,28 @@ async function processQueue() {
 
 app.get('/api/internal/download-source/:id', (req, res) => res.json(activeJobsData[req.params.id] || {}));
 
+// Handle build upload from GitHub
 app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) => {
     const jobID = req.params.id;
     const buildFile = req.file;
     const jobData = activeJobsData[jobID];
 
-    if (buildFile) {
-        const finalName = `${jobData ? jobData.safeFileName : 'game'}_${jobID}.exe`;
+    if (buildFile && jobData) {
+        // DETECT EXTENSION BASED ON PLATFORM
+        const extension = jobData.platform === 'android' ? '.apk' : '.exe';
+        const finalName = `${jobData.safeFileName}_${jobID}${extension}`;
+        
         fs.renameSync(buildFile.path, path.join(buildsDir, finalName));
-        buildJobs[jobID] = { status: 'ready', file: finalName };
+        
+        buildJobs[jobID] = { status: 'ready', file: finalName, platform: jobData.platform };
         io.emit('build-complete', { jobID, file: finalName });
+        
         setTimeout(() => {
             const p = path.join(buildsDir, finalName);
             if (fs.existsSync(p)) fs.unlinkSync(p);
-        }, 120000); // 2 minutes to download
+        }, 300000); // 5 minutes to download
     }
+    
     delete activeJobsData[jobID];
     isBuilding = false;
     res.send('OK');
