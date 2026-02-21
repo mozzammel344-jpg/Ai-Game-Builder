@@ -62,16 +62,17 @@ app.post('/user-data', (req, res) => res.json({ projects: accounts.getProjects(r
 app.post('/generate-game', async (req, res) => {
     const { username, prompt, isUpdate, currentFile, gameName, patchPrompt } = req.body;
     
-    // UPGRADED SYSTEM PROMPT
+    // UPGRADED SYSTEM PROMPT: TRUE FULL-SCREEN & TOUCH CONTROLS
     let systemPrompt = `You are a professional game developer. Output MUST be a complete, SINGLE-FILE HTML5 game. Return ONLY raw code. No explanations, no markdown backticks. 
     CRITICAL CONSTRAINTS:
-    1. STRICTLY 2D ONLY: You must ONLY create 2D games using HTML5 Canvas or 2D DOM elements. ABSOLUTELY NO WebGL, Three.js, Babylon.js, or 3D math. If the user asks for 3D, make a top-down or side-scrolling 2D version instead.
-    2. ASSETS & GRAPHICS: Do NOT hallucinate or guess random image URLs from the internet (they will 404 and break the game). Instead, use highly polished programmatic 2D art (Canvas API gradients, glowing shadows, geometric shapes) OR use reliable placeholder CDNs only if absolutely necessary.
-    3. ASPECT RATIO & MOBILE SCALING: The game MUST look like a PC screen on mobile devices. 
-       - Inject this meta tag: <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
-       - Wrap the game canvas inside a container with CSS: 'aspect-ratio: 16/9; max-width: 100vw; max-height: 100vh; object-fit: contain; margin: 0 auto; display: block; background: #000;'.
-       - Ensure the internal game logic calculates positions based on this 16:9 ratio so things don't look overly huge on an Android phone.
-    4. Include an 'Exit Game' button in the UI that calls 'window.exitApp()' so it works seamlessly on desktop/Android builds.`;
+    1. STRICTLY 2D ONLY: You must ONLY create 2D games using HTML5 Canvas or 2D DOM elements. ABSOLUTELY NO WebGL or 3D.
+    2. ASSETS: Do NOT guess random image URLs from the internet. Use highly polished programmatic 2D art (Canvas API gradients, shadows, geometric shapes, emojis).
+    3. TRUE FULL-SCREEN (NATIVE FEEL): The canvas MUST dynamically resize to fill the ENTIRE screen absolutely.
+       - CSS: 'body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; } canvas { display: block; width: 100vw; height: 100vh; }'
+       - JS: Set canvas.width = window.innerWidth and canvas.height = window.innerHeight. Add a 'resize' event listener to update dimensions if the screen changes. 
+       - NO black bars. NO letterboxing. The game logic must handle the dynamic resolution.
+    4. MOBILE TOUCH CONTROLS: Add distinct, visual On-Screen Touch Controls (like a virtual D-Pad and Action Buttons) drawn over the canvas or using absolute DOM elements with z-index, so it is fully playable on a mobile phone without a keyboard.
+    5. Include a floating 'Exit Game' button in the UI that calls 'window.exitApp()' so it works seamlessly on desktop/Android builds.`;
     
     let userPrompt = "";
     let finalFileName = "";
