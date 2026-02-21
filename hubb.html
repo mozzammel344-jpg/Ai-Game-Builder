@@ -58,7 +58,7 @@
         h1 { font-size: 1.2rem; color: var(--mc-green); text-align: center; margin-bottom: 20px; text-shadow: 2px 2px #000; }
         label { font-size: 0.7rem; color: #aaa; margin-bottom: 5px; display: block; text-transform: uppercase; }
 
-        input, textarea {
+        input, textarea, select {
             width: 100%; background: #000; border: 4px solid var(--mc-border);
             color: var(--mc-text); font-family: var(--mc-font); font-size: 0.8rem;
             padding: 10px; margin-bottom: 15px; outline: none; resize: none;
@@ -66,7 +66,7 @@
         }
         
         textarea { height: 120px; }
-        input:focus, textarea:focus { border-color: var(--mc-green); }
+        input:focus, textarea:focus, select:focus { border-color: var(--mc-green); }
 
         .btn {
             width: 100%; padding: 12px; font-family: var(--mc-font); font-size: 0.8rem;
@@ -120,7 +120,6 @@
         }
         .log-err { color: #ff5555; }
 
-        /* QUEUE UI */
         .queue-box {
             background: #222; border: 2px solid var(--mc-gold);
             padding: 10px; margin-bottom: 10px; text-align: center;
@@ -211,6 +210,12 @@
         </div>
 
         <div class="build-config-box" id="build-inputs">
+            <label style="color:var(--mc-gold)">Target Platform</label>
+            <select id="platform-select">
+                <option value="windows">Windows (.EXE)</option>
+                <option value="android">Android (.APK)</option>
+            </select>
+
             <label style="color:var(--mc-gold)">Product Name</label>
             <input type="text" id="custom-exe-name" placeholder="Game Title">
             
@@ -239,7 +244,6 @@
     let currentUser = null;
     let currentFile = null;
     let activeJobID = null;
-    let myQueuePos = -1;
 
     // --- SOCKET LISTENERS ---
     socket.on('queue-status', (data) => {
@@ -274,7 +278,6 @@
             statusText.style.color = 'var(--mc-green)';
             statusText.innerText = "SUCCESS! DOWNLOAD STARTING...";
             
-            // Trigger actual download from server
             window.location.href = `/download-zone/${data.file}`;
             
             setTimeout(() => {
@@ -295,19 +298,21 @@
     async function handleAuth(endpoint) {
         const u = document.getElementById('username').value;
         const p = document.getElementById('password').value;
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: u, password: p })
-        });
-        const data = await res.json();
-        if (data.error) alert(data.error);
-        else {
-            currentUser = u;
-            document.getElementById('auth-screen').style.display = 'none';
-            document.getElementById('app').style.display = 'flex';
-            loadUserData();
-        }
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: u, password: p })
+            });
+            const data = await res.json();
+            if (data.error) alert(data.error);
+            else {
+                currentUser = u;
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('app').style.display = 'flex';
+                loadUserData();
+            }
+        } catch(e) { alert("Server Connection Lost"); }
     }
 
     async function loadUserData() {
@@ -335,8 +340,10 @@
         document.getElementById('concept-area').style.display = 'none';
         document.getElementById('patch-area').style.display = 'block';
         document.getElementById('btn-new-project').style.display = 'block';
-        document.getElementById('gameName').value = filename.split('_')[0];
-        document.getElementById('custom-exe-name').value = filename.split('_')[0];
+        
+        const title = filename.split('_')[0];
+        document.getElementById('gameName').value = title;
+        document.getElementById('custom-exe-name').value = title;
     }
 
     function resetToNewProject() {
@@ -345,28 +352,40 @@
         document.getElementById('concept-area').style.display = 'block';
         document.getElementById('patch-area').style.display = 'none';
         document.getElementById('btn-new-project').style.display = 'none';
+        document.getElementById('current-file-display').innerText = "STANDBY";
     }
 
     async function generate(isUpdate) {
         const status = document.getElementById('status-bar');
         status.innerText = "THINKING...";
-        const res = await fetch('/generate-game', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                username: currentUser,
-                prompt: document.getElementById('gamePrompt').value,
-                patchPrompt: document.getElementById('patchPrompt').value,
-                isUpdate: isUpdate,
-                currentFile: currentFile,
-                gameName: document.getElementById('gameName').value
-            })
-        });
-        const data = await res.json();
-        if (data.fileName) {
-            status.innerText = "SUCCESS";
-            loadGame(data.fileName);
-            loadUserData();
+        status.style.color = "var(--mc-gold)";
+
+        try {
+            const res = await fetch('/generate-game', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: currentUser,
+                    prompt: document.getElementById('gamePrompt').value,
+                    patchPrompt: document.getElementById('patchPrompt').value,
+                    isUpdate: isUpdate,
+                    currentFile: currentFile,
+                    gameName: document.getElementById('gameName').value
+                })
+            });
+            const data = await res.json();
+            if (data.fileName) {
+                status.innerText = "SUCCESS";
+                status.style.color = "var(--mc-green)";
+                loadGame(data.fileName);
+                loadUserData();
+            } else {
+                throw new Error(data.error || "Generation failed");
+            }
+        } catch (e) {
+            status.innerText = "ERROR: " + e.message;
+            status.style.color = "var(--mc-red)";
+            console.error(e);
         }
     }
 
@@ -394,6 +413,7 @@
     async function triggerBuild() {
         const btn = document.getElementById('btn-start-build');
         const customName = document.getElementById('custom-exe-name').value;
+        const platform = document.getElementById('platform-select').value;
         const iconInput = document.getElementById('icon-input');
 
         if(!customName) return alert("Need a product name!");
@@ -402,20 +422,26 @@
         document.getElementById('build-inputs').style.display = 'none';
         document.getElementById('p-container').style.display = 'block';
         document.getElementById('p-bar').style.width = '10%';
-        document.getElementById('build-status').innerText = "JOINING QUEUE...";
+        document.getElementById('build-status').innerText = `QUEUING ${platform.toUpperCase()} BUILD...`;
 
         const formData = new FormData();
         formData.append('fileName', currentFile);
         formData.append('customName', customName);
+        formData.append('platform', platform);
         if(iconInput.files[0]) formData.append('icon', iconInput.files[0]);
 
-        const res = await fetch('/build', { 
-            method: 'POST', 
-            body: formData,
-            headers: { 'socket-id': socket.id }
-        });
-        const data = await res.json();
-        activeJobID = data.jobID;
+        try {
+            const res = await fetch('/build', { 
+                method: 'POST', 
+                body: formData,
+                headers: { 'socket-id': socket.id }
+            });
+            const data = await res.json();
+            activeJobID = data.jobID;
+        } catch(e) {
+            alert("Failed to start build");
+            resetBuildUI();
+        }
     }
 
     function previewIcon(input) {
