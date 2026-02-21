@@ -258,18 +258,7 @@
         }
     });
 
-    socket.on('build-log', (data) => {
-        if (data.jobID === activeJobID) {
-            const terminal = document.getElementById('terminal-log');
-            terminal.style.display = 'block';
-            const line = document.createElement('div');
-            if (data.type === 'stderr') line.className = 'log-err';
-            line.innerText = `[GITHUB]: ${data.message}`;
-            terminal.appendChild(line);
-            terminal.scrollTop = terminal.scrollHeight;
-        }
-    });
-
+    // Listen for completion
     socket.on('build-complete', (data) => {
         if (data.jobID === activeJobID) {
             const statusText = document.getElementById('build-status');
@@ -278,19 +267,13 @@
             statusText.style.color = 'var(--mc-green)';
             statusText.innerText = "SUCCESS! DOWNLOAD STARTING...";
             
+            // Redirect to download link
             window.location.href = `/download-zone/${data.file}`;
             
             setTimeout(() => {
-                alert("Download started. Note: File will be deleted from server in 60 seconds.");
+                alert("Build ready. Your file is downloading.");
                 resetBuildUI();
             }, 1000);
-        }
-    });
-
-    socket.on('build-error', (data) => {
-        if (data.jobID === activeJobID) {
-            alert("Build Failed: " + data.code);
-            resetBuildUI();
         }
     });
 
@@ -385,7 +368,6 @@
         } catch (e) {
             status.innerText = "ERROR: " + e.message;
             status.style.color = "var(--mc-red)";
-            console.error(e);
         }
     }
 
@@ -395,6 +377,7 @@
     function openDownloadMenu() {
         if (!currentFile) return alert("Open a project first!");
         document.getElementById('download-modal').style.display = 'flex';
+        resetBuildUI();
     }
 
     function closeExport() {
@@ -421,8 +404,18 @@
         btn.disabled = true;
         document.getElementById('build-inputs').style.display = 'none';
         document.getElementById('p-container').style.display = 'block';
-        document.getElementById('p-bar').style.width = '10%';
-        document.getElementById('build-status').innerText = `QUEUING ${platform.toUpperCase()} BUILD...`;
+        
+        const statusText = document.getElementById('build-status');
+        statusText.innerText = `TRANSMITTING TO GITHUB (${platform.toUpperCase()})...`;
+
+        // Start progress bar animation
+        let progress = 10;
+        const prInterval = setInterval(() => {
+            if (progress < 90) {
+                progress += 2;
+                document.getElementById('p-bar').style.width = progress + '%';
+            }
+        }, 1500);
 
         const formData = new FormData();
         formData.append('fileName', currentFile);
@@ -433,13 +426,14 @@
         try {
             const res = await fetch('/build', { 
                 method: 'POST', 
-                body: formData,
-                headers: { 'socket-id': socket.id }
+                body: formData
             });
             const data = await res.json();
             activeJobID = data.jobID;
+            statusText.innerText = `BUILDING ${platform.toUpperCase()}... (Approx 2-3 mins)`;
         } catch(e) {
-            alert("Failed to start build");
+            clearInterval(prInterval);
+            alert("Connection Error");
             resetBuildUI();
         }
     }
