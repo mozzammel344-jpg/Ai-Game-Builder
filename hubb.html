@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architect Engine | Hub</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @import url('https://fonts.cdnfonts.com/css/minecraft-4');
+
+        :root {
+            --mc-font: 'Minecraft', sans-serif;
+            --mc-bg: #1e1e1e;
+            --mc-border: #444;
+            --mc-text: #fff;
+            --mc-green: #55ff55;
+            --mc-red: #ff5555;
+            --mc-gold: #ffaa00;
+            --mc-purple: #aa00aa;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body, html {
+            height: 100%;
+            font-family: var(--mc-font);
+            color: var(--mc-text);
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        #bg-video {
+            position: fixed;
+            top: 0; left: 0; min-width: 100%; min-height: 100%;
+            z-index: -1; object-fit: cover; opacity: 0.5;
+        }
+
+        .app-container {
+            display: flex; height: 100%; width: 100%; display: none;
+        }
+        
+        .creator-side {
+            width: 400px;
+            background: rgba(25, 25, 25, 0.95);
+            border-right: 6px solid var(--mc-border);
+            display: flex; flex-direction: column;
+            padding: 20px; transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .creator-side.hidden { transform: translateX(-100%); position: absolute; }
+
+        .preview-side {
+            flex-grow: 1; display: flex; flex-direction: column;
+            background: #000; position: relative;
+        }
+
+        h1 { font-size: 1.2rem; color: var(--mc-green); text-align: center; margin-bottom: 20px; text-shadow: 2px 2px #000; }
+        label { font-size: 0.7rem; color: #aaa; margin-bottom: 5px; display: block; text-transform: uppercase; }
+
+        input, textarea {
+            width: 100%; background: #000; border: 4px solid var(--mc-border);
+            color: var(--mc-text); font-family: var(--mc-font); font-size: 0.8rem;
+            padding: 10px; margin-bottom: 15px; outline: none; resize: none;
+            box-shadow: inset 4px 4px #000;
+        }
+        
+        textarea { height: 120px; }
+        input:focus, textarea:focus { border-color: var(--mc-green); }
+
+        .btn {
+            width: 100%; padding: 12px; font-family: var(--mc-font); font-size: 0.8rem;
+            color: white; border: 4px solid #000; cursor: pointer; text-shadow: 2px 2px #000;
+            background: #555; box-shadow: inset -4px -4px rgba(0,0,0,0.5), inset 4px 4px rgba(255,255,255,0.2);
+            margin-bottom: 10px;
+        }
+        .btn:hover { filter: brightness(1.2); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-create { background: #00aa00; }
+        .btn-update { background: #aa00aa; border-color: #550055; }
+        .btn-reset { background: #444; font-size: 0.6rem; padding: 5px; margin-top: -10px; margin-bottom: 20px; }
+
+        .history-panel { margin-top: 20px; border-top: 2px solid #444; padding-top: 15px; }
+        .history-title { font-size: 0.8rem; color: var(--mc-gold); margin-bottom: 10px; }
+        .history-item { font-size: 0.7rem; padding: 10px; background: #222; border: 2px solid #444; margin-bottom: 5px; cursor: pointer; word-break: break-all; }
+        .history-item:hover { background: #333; border-color: var(--mc-green); }
+
+        .preview-controls {
+            height: 45px; background: #111; border-bottom: 4px solid #444;
+            display: flex; align-items: center; justify-content: space-between; padding: 0 10px;
+        }
+        .ctrl-btn {
+            background: #444; border: 2px solid #000; color: white;
+            font-family: var(--mc-font); font-size: 0.6rem; padding: 5px 10px; cursor: pointer; margin-left: 5px;
+        }
+        iframe { width: 100%; height: calc(100% - 45px); border: none; background: #000; }
+
+        #icon-drop-zone {
+            border: 2px dashed #444; padding: 15px; text-align: center;
+            cursor: pointer; background: #000; border-radius: 4px;
+            transition: border-color 0.2s;
+        }
+        #icon-drop-zone:hover { border-color: var(--mc-green); }
+        #icon-preview { max-width: 64px; max-height: 64px; display: none; margin: 0 auto 10px; image-rendering: pixelated; }
+
+        .progress-container {
+            width: 100%; height: 20px; background: #000; border: 2px solid #555;
+            margin: 15px 0; display: none; position: relative;
+        }
+        .progress-bar {
+            width: 0%; height: 100%; background: var(--mc-green);
+            box-shadow: 0 0 10px var(--mc-green); transition: width 0.3s;
+        }
+        
+        #terminal-log {
+            background: #000; border: 2px solid #333; color: #0f0;
+            font-family: 'Consolas', monospace; font-size: 11px; height: 180px;
+            overflow-y: auto; padding: 10px; text-align: left; margin-top: 10px;
+            display: none; line-height: 1.4;
+        }
+        .log-err { color: #ff5555; }
+
+        /* QUEUE UI */
+        .queue-box {
+            background: #222; border: 2px solid var(--mc-gold);
+            padding: 10px; margin-bottom: 10px; text-align: center;
+            display: none;
+        }
+
+        #auth-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .auth-box { background: #313131; border: 6px solid #000; padding: 30px; width: 350px; text-align: center; }
+        #status-bar { font-size: 0.7rem; color: #888; text-align: center; margin-top: 10px; min-height: 1.2em; }
+
+        #download-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 2000; display: none; justify-content: center; align-items: center;
+        }
+        .modal-box { background: #313131; border: 6px solid #000; padding: 30px; text-align: center; width: 500px; }
+        .build-config-box { background: #111; padding: 15px; border: 2px solid var(--mc-border); margin-bottom: 15px; text-align: left; }
+    </style>
+</head>
+<body>
+
+<video id="bg-video" autoplay loop muted>
+    <source src="live.mp4" type="video/mp4">
+</video>
+
+<div id="auth-screen">
+    <div class="auth-box">
+        <h1>SYSTEM AUTH</h1>
+        <div id="auth-error" style="color:var(--mc-red); font-size:0.7rem; margin-bottom:10px;"></div>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button class="btn btn-create" onclick="handleAuth('/login')">LOGIN</button>
+        <button class="btn" onclick="handleAuth('/signup')">SIGN UP</button>
+    </div>
+</div>
+
+<div id="app" class="app-container">
+    <div id="sidebar" class="creator-side">
+        <h1>ARCHITECT HUB</h1>
+        <button id="btn-new-project" class="btn btn-reset" style="display:none;" onclick="resetToNewProject()">+ NEW PROJECT</button>
+
+        <label>Project Title</label>
+        <input type="text" id="gameName" placeholder="Untitled World">
+        
+        <div id="concept-area">
+            <label>Initial Concept</label>
+            <textarea id="gamePrompt" placeholder="Describe your new game..."></textarea>
+            <button class="btn btn-create" onclick="craftGame()">[ CRAFT NEW WORLD ]</button>
+        </div>
+
+        <div id="patch-area" style="display:none;">
+            <label style="color:var(--mc-purple)">Patch Instructions</label>
+            <textarea id="patchPrompt" style="border-color:var(--mc-purple)" placeholder="What should change in this code?"></textarea>
+            <button class="btn btn-update" onclick="updateGame()">[ APPLY PATCH ]</button>
+        </div>
+        
+        <div id="status-bar">SYSTEM READY</div>
+
+        <div class="history-panel">
+            <div class="history-title">YOUR PROJECTS</div>
+            <div id="history-list"></div>
+        </div>
+    </div>
+
+    <div class="preview-side">
+        <div class="preview-controls">
+            <button class="ctrl-btn" onclick="toggleSidebar()">MENU</button>
+            <div style="color:var(--mc-gold); font-size:0.7rem;" id="current-file-display">STANDBY</div>
+            <div>
+                <button class="ctrl-btn" onclick="openDownloadMenu()">EXPORT</button>
+                <button class="ctrl-btn" onclick="refreshIframe()">RELOAD</button>
+                <button class="ctrl-btn" onclick="toggleFullscreen()">FS</button>
+            </div>
+        </div>
+        <iframe id="game-frame"></iframe>
+    </div>
+</div>
+
+<div id="download-modal">
+    <div class="modal-box">
+        <h2 style="color:var(--mc-green); font-size:1rem; margin-bottom:15px;">GITHUB BUILD MODULE</h2>
+        
+        <div id="queue-display" class="queue-box">
+            <p style="color:var(--mc-gold); font-size:0.8rem;">IN QUEUE</p>
+            <p id="queue-status-text" style="font-size:0.7rem;">Waiters Ahead: 0</p>
+        </div>
+
+        <div class="build-config-box" id="build-inputs">
+            <label style="color:var(--mc-gold)">Product Name</label>
+            <input type="text" id="custom-exe-name" placeholder="Game Title">
+            
+            <label style="color:var(--mc-gold)">Game Icon (PNG/JPG/ICO)</label>
+            <div id="icon-drop-zone" onclick="document.getElementById('icon-input').click()">
+                <img id="icon-preview" src="">
+                <span id="icon-label" style="font-size: 0.6rem; color: #888;">CLICK TO UPLOAD ICON</span>
+                <input type="file" id="icon-input" accept="image/*" style="display:none" onchange="previewIcon(this)">
+            </div>
+        </div>
+
+        <div class="progress-container" id="p-container">
+            <div class="progress-bar" id="p-bar"></div>
+        </div>
+
+        <button id="btn-start-build" class="btn btn-create" onclick="triggerBuild()">[ START CLOUD COMPILE ]</button>
+        <button id="btn-cancel-build" class="btn" onclick="closeExport()">CLOSE</button>
+        
+        <div id="terminal-log"></div>
+        <div id="build-status" style="font-size:0.7rem; color:var(--mc-gold); margin-top:15px;"></div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let currentUser = null;
+    let currentFile = null;
+    let activeJobID = null;
+    let myQueuePos = -1;
+
+    // --- SOCKET LISTENERS ---
+    socket.on('queue-status', (data) => {
+        const queueDiv = document.getElementById('queue-display');
+        const queueText = document.getElementById('queue-status-text');
+        
+        if (data.queueLength > 0 || data.isBuilding) {
+            queueDiv.style.display = 'block';
+            queueText.innerText = `System Load: ${data.queueLength} job(s) in line.`;
+        } else {
+            queueDiv.style.display = 'none';
+        }
+    });
+
+    socket.on('build-log', (data) => {
+        if (data.jobID === activeJobID) {
+            const terminal = document.getElementById('terminal-log');
+            terminal.style.display = 'block';
+            const line = document.createElement('div');
+            if (data.type === 'stderr') line.className = 'log-err';
+            line.innerText = `[GITHUB]: ${data.message}`;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+    });
+
+    socket.on('build-complete', (data) => {
+        if (data.jobID === activeJobID) {
+            const statusText = document.getElementById('build-status');
+            const pBar = document.getElementById('p-bar');
+            pBar.style.width = '100%';
+            statusText.style.color = 'var(--mc-green)';
+            statusText.innerText = "SUCCESS! DOWNLOAD STARTING...";
+            
+            // Trigger actual download from server
+            window.location.href = `/download-zone/${data.file}`;
+            
+            setTimeout(() => {
+                alert("Download started. Note: File will be deleted from server in 60 seconds.");
+                resetBuildUI();
+            }, 1000);
+        }
+    });
+
+    socket.on('build-error', (data) => {
+        if (data.jobID === activeJobID) {
+            alert("Build Failed: " + data.code);
+            resetBuildUI();
+        }
+    });
+
+    // --- CORE LOGIC ---
+    async function handleAuth(endpoint) {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u, password: p })
+        });
+        const data = await res.json();
+        if (data.error) alert(data.error);
+        else {
+            currentUser = u;
+            document.getElementById('auth-screen').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            loadUserData();
+        }
+    }
+
+    async function loadUserData() {
+        const res = await fetch('/user-data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: currentUser })
+        });
+        const data = await res.json();
+        const list = document.getElementById('history-list');
+        list.innerHTML = '';
+        data.projects.reverse().forEach(proj => {
+            const div = document.createElement('div');
+            div.className = 'history-item';
+            div.innerText = proj;
+            div.onclick = () => loadGame(proj);
+            list.appendChild(div);
+        });
+    }
+
+    function loadGame(filename) {
+        currentFile = filename;
+        document.getElementById('game-frame').src = `/games/${filename}`;
+        document.getElementById('current-file-display').innerText = filename;
+        document.getElementById('concept-area').style.display = 'none';
+        document.getElementById('patch-area').style.display = 'block';
+        document.getElementById('btn-new-project').style.display = 'block';
+        document.getElementById('gameName').value = filename.split('_')[0];
+        document.getElementById('custom-exe-name').value = filename.split('_')[0];
+    }
+
+    function resetToNewProject() {
+        currentFile = null;
+        document.getElementById('game-frame').src = 'about:blank';
+        document.getElementById('concept-area').style.display = 'block';
+        document.getElementById('patch-area').style.display = 'none';
+        document.getElementById('btn-new-project').style.display = 'none';
+    }
+
+    async function generate(isUpdate) {
+        const status = document.getElementById('status-bar');
+        status.innerText = "THINKING...";
+        const res = await fetch('/generate-game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: currentUser,
+                prompt: document.getElementById('gamePrompt').value,
+                patchPrompt: document.getElementById('patchPrompt').value,
+                isUpdate: isUpdate,
+                currentFile: currentFile,
+                gameName: document.getElementById('gameName').value
+            })
+        });
+        const data = await res.json();
+        if (data.fileName) {
+            status.innerText = "SUCCESS";
+            loadGame(data.fileName);
+            loadUserData();
+        }
+    }
+
+    async function craftGame() { await generate(false); }
+    async function updateGame() { await generate(true); }
+
+    function openDownloadMenu() {
+        if (!currentFile) return alert("Open a project first!");
+        document.getElementById('download-modal').style.display = 'flex';
+    }
+
+    function closeExport() {
+        document.getElementById('download-modal').style.display = 'none';
+    }
+
+    function resetBuildUI() {
+        document.getElementById('btn-start-build').disabled = false;
+        document.getElementById('build-inputs').style.display = 'block';
+        document.getElementById('terminal-log').innerHTML = '';
+        document.getElementById('terminal-log').style.display = 'none';
+        document.getElementById('p-container').style.display = 'none';
+        document.getElementById('build-status').innerText = "";
+    }
+
+    async function triggerBuild() {
+        const btn = document.getElementById('btn-start-build');
+        const customName = document.getElementById('custom-exe-name').value;
+        const iconInput = document.getElementById('icon-input');
+
+        if(!customName) return alert("Need a product name!");
+
+        btn.disabled = true;
+        document.getElementById('build-inputs').style.display = 'none';
+        document.getElementById('p-container').style.display = 'block';
+        document.getElementById('p-bar').style.width = '10%';
+        document.getElementById('build-status').innerText = "JOINING QUEUE...";
+
+        const formData = new FormData();
+        formData.append('fileName', currentFile);
+        formData.append('customName', customName);
+        if(iconInput.files[0]) formData.append('icon', iconInput.files[0]);
+
+        const res = await fetch('/build', { 
+            method: 'POST', 
+            body: formData,
+            headers: { 'socket-id': socket.id }
+        });
+        const data = await res.json();
+        activeJobID = data.jobID;
+    }
+
+    function previewIcon(input) {
+        const preview = document.getElementById('icon-preview');
+        const label = document.getElementById('icon-label');
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                label.style.display = 'none';
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function toggleSidebar() { document.getElementById('sidebar').classList.toggle('hidden'); }
+    function refreshIframe() { document.getElementById('game-frame').src += ''; }
+    function toggleFullscreen() {
+        const f = document.getElementById('game-frame');
+        if (!document.fullscreenElement) f.requestFullscreen();
+        else document.exitFullscreen();
+    }
+</script>
+</body>
+</html>
