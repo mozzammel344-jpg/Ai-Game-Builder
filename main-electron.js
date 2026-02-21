@@ -4,15 +4,13 @@ const fs = require('fs');
 
 /**
  * ARCHITECT ENGINE - Production Wrapper
- * Features: Dynamic Icon Detection, Frameless Splash, and IPC Exit Logic.
+ * High-Graphics Build Logic
  */
 
 function createWindow() {
   // --- 1. DYNAMIC ICON DETECTION ---
-  // We check which icon file was placed in the folder by the server
   const possibleIcons = ['icon.ico', 'icon.png', 'icon.jpg', 'icon.jpeg'];
   let iconPath = undefined;
-
   for (const name of possibleIcons) {
     const fullPath = path.join(__dirname, name);
     if (fs.existsSync(fullPath)) {
@@ -21,21 +19,20 @@ function createWindow() {
     }
   }
 
-  // --- 2. CREATE THE SPLASH SCREEN ---
+  // --- 2. CREATE THE STYLISH SPLASH SCREEN ---
   const splash = new BrowserWindow({
-    width: 700,
-    height: 450,
-    transparent: true,
+    width: 600,
+    height: 400,
+    transparent: true, // Required for the glow effects
     frame: false,
     alwaysOnTop: true,
     center: true,
     resizable: false,
-    icon: iconPath, // Set icon for the splash taskbar entry
-    webPreferences: { 
-      nodeIntegration: false 
-    }
+    icon: iconPath,
+    webPreferences: { nodeIntegration: false }
   });
   
+  // Note: The HTML content for this is generated dynamically by the server
   splash.loadFile(path.join(__dirname, 'splash.html'));
 
   // --- 3. PREPARE THE MAIN GAME WINDOW ---
@@ -45,8 +42,8 @@ function createWindow() {
     show: false,
     fullscreen: true,
     autoHideMenuBar: true,
-    backgroundColor: '#1a1a1a',
-    icon: iconPath, // Set icon for the main window title bar
+    backgroundColor: '#000000',
+    icon: iconPath,
     webPreferences: { 
         nodeIntegration: false,
         contextIsolation: false,
@@ -58,32 +55,23 @@ function createWindow() {
 
   // --- 4. SMOOTH TRANSITION LOGIC ---
   win.once('ready-to-show', () => {
-    // Show splash for 2.5 seconds, then swap
+    // 3 seconds of high-graphics splash
     setTimeout(() => {
       if (!splash.isDestroyed()) splash.close(); 
       win.show();
+      win.maximize();
       win.focus();
-    }, 2500); 
+    }, 3000); 
   });
 
-  // --- 5. IPC LISTENER FOR EXIT BUTTON ---
+  // --- 5. IPC LISTENER FOR EXIT ---
   ipcMain.on('exit-app', () => {
     app.quit();
   });
 }
 
-// Electron Initialization
-app.whenReady().then(() => {
-  createWindow();
+app.whenReady().then(createWindow);
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-// Standard OS Close Behavior
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
