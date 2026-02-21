@@ -1,58 +1,70 @@
-name: Build Game EXE
+name: Multi-Platform Builder
 on:
   repository_dispatch:
     types: [build-project]
 
 jobs:
-  build:
+  build-windows:
+    if: github.event.client_payload.platform == 'windows'
     runs-on: windows-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Prepare Source
+      - name: Build EXE
         shell: bash
         run: |
-          # Fetch the source data from your Render server
           curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
-          
-          # Extract files using node (built-in)
           node -e "
             const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('data.json', 'utf8'));
-            fs.writeFileSync('index.html', data.html);
-            fs.writeFileSync('main.js', data.main);
-            fs.writeFileSync('preload.js', data.preload);
-            fs.writeFileSync('splash.html', data.splash);
-            fs.writeFileSync('package.json', data.packageJson);
-            
-            if (data.iconBase64) {
-              fs.writeFileSync('icon' + data.iconExt, Buffer.from(data.iconBase64, 'base64'));
-            }
+            const d = JSON.parse(fs.readFileSync('data.json'));
+            fs.writeFileSync('index.html', d.html);
+            fs.writeFileSync('main.js', d.main);
+            fs.writeFileSync('preload.js', d.preload);
+            fs.writeFileSync('splash.html', d.splash);
+            fs.writeFileSync('package.json', d.packageJson);
           "
-
-      - name: Install Dependencies
-        run: |
           npm install
-          npm install --save-dev electron-builder
-
-      - name: Build Portable EXE
-        run: |
-          # We use npx to run electron-builder without global install
           npx electron-builder --win portable
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Result to Server
-        shell: bash
-        run: |
-          # Find the generated exe in the dist folder
           EXE_PATH=$(ls dist/*.exe | head -n 1)
-          
-          # Send it back to your server's upload route
           curl -X POST -F "exe=@$EXE_PATH" "${{ github.event.client_payload.uploadUrl }}"
+
+  build-android:
+    if: github.event.client_payload.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Install Bubblewrap (PWA to APK)
+        run: npm install -g @bubblewrap/cli
+      
+      - name: Build APK
+        run: |
+          # Fetch the HTML source
+          curl -s -L "${{ github.event.client_payload.downloadUrl }}" > data.json
+          
+          # For Android, we package the HTML as a TWA (Trusted Web Activity)
+          # This uses Bubblewrap to wrap your single-file HTML into a real APK
+          node -e "
+            const fs = require('fs');
+            const d = JSON.parse(fs.readFileSync('data.json'));
+            fs.writeFileSync('index.html', d.html);
+          "
+          
+          # Note: Bubblewrap usually requires a manifest. 
+          # For a quick single-file build, we use a simplified CLI approach
+          # In a production environment, you'd use a more robust Cordova/Capacitor setup.
+          # For now, we will use a placeholder tool or Cordova.
+          npm install -g cordova
+          cordova create build_android com.architect.game "Game"
+          cp index.html build_android/www/
+          cd build_android
+          cordova platform add android
+          cordova build android --release --device
+          
+          APK_PATH=$(find platforms/android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          curl -X POST -F "exe=@$APK_PATH" "${{ github.event.client_payload.uploadUrl }}"
