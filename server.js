@@ -62,17 +62,18 @@ app.post('/user-data', (req, res) => res.json({ projects: accounts.getProjects(r
 app.post('/generate-game', async (req, res) => {
     const { username, prompt, isUpdate, currentFile, gameName, patchPrompt } = req.body;
     
-    // UPGRADED SYSTEM PROMPT: TRUE FULL-SCREEN & TOUCH CONTROLS
-    let systemPrompt = `You are a professional game developer. Output MUST be a complete, SINGLE-FILE HTML5 game. Return ONLY raw code. No explanations, no markdown backticks. 
-    CRITICAL CONSTRAINTS:
-    1. STRICTLY 2D ONLY: You must ONLY create 2D games using HTML5 Canvas or 2D DOM elements. ABSOLUTELY NO WebGL or 3D.
-    2. ASSETS: Do NOT guess random image URLs from the internet. Use highly polished programmatic 2D art (Canvas API gradients, shadows, geometric shapes, emojis).
-    3. TRUE FULL-SCREEN (NATIVE FEEL): The canvas MUST dynamically resize to fill the ENTIRE screen absolutely.
-       - CSS: 'body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; } canvas { display: block; width: 100vw; height: 100vh; }'
-       - JS: Set canvas.width = window.innerWidth and canvas.height = window.innerHeight. Add a 'resize' event listener to update dimensions if the screen changes. 
-       - NO black bars. NO letterboxing. The game logic must handle the dynamic resolution.
-    4. MOBILE TOUCH CONTROLS: Add distinct, visual On-Screen Touch Controls (like a virtual D-Pad and Action Buttons) drawn over the canvas or using absolute DOM elements with z-index, so it is fully playable on a mobile phone without a keyboard.
-    5. Include a floating 'Exit Game' button in the UI that calls 'window.exitApp()' so it works seamlessly on desktop/Android builds.`;
+    // STRICT SYSTEM PROMPT (NO BUTTONS, NO INTERNET, WITH AUDIO)
+    let systemPrompt = `You are an elite 2D game engineer. Output MUST be a SINGLE-FILE HTML5 game. 
+    Return ONLY raw code. No explanations, no backticks. 
+    
+    RULES:
+    1. STRICTLY 2D: No WebGL, No 3D. Use 2D Canvas API.
+    2. NO EXTERNAL ASSETS: Do NOT use <img> tags or URLs. Do NOT search for models. Draw everything using canvas methods (rect, arc, gradients). Use emojis for complex characters if needed.
+    3. FULL SCREEN: Canvas must resize to window.innerWidth/innerHeight. No black bars.
+    4. CONTROLS: Use Keyboard (Arrow keys/WASD) or Mouse only. Do NOT add mobile buttons or on-screen D-pads.
+    5. NO EXIT BUTTON: Do not include an exit or quit button in the UI.
+    6. AUDIO SYSTEM: Use the 'Web Audio API' (AudioContext) to generate procedural sound effects (e.g., a short 'oscillator' beep for jumps, explosions, or clicks). Do NOT use .mp3 or .wav files.
+    7. CODE QUALITY: Ensure the game loop is efficient. If updating code, preserve existing logic unless told otherwise.`;
     
     let userPrompt = "";
     let finalFileName = "";
@@ -92,7 +93,8 @@ app.post('/generate-game', async (req, res) => {
     try {
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
             model: MODEL,
-            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }]
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+            temperature: 0.1 // FORCE DETERMINISTIC LOGIC
         }, {
             headers: { 
                 "Authorization": `Bearer ${OR_API_KEY}`, 
@@ -118,7 +120,7 @@ app.post('/generate-game', async (req, res) => {
 // --- MULTI-PLATFORM COMPILER QUEUE ---
 app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const { fileName, customName, platform } = req.body;
-    const targetPlatform = platform || 'windows'; // Takes 'android' or 'windows'
+    const targetPlatform = platform || 'windows'; 
     const iconFile = req.file;
 
     if (!fileName) return res.status(400).json({ error: "No file selected." });
@@ -126,7 +128,6 @@ app.post('/build', uploadIcon.single('icon'), (req, res) => {
     const jobID = Math.floor(1000000000 + Math.random() * 9000000000).toString();
     const htmlContent = fs.readFileSync(path.join(gamesDir, fileName), 'utf8');
     
-    // EMBEDDED WRAPPER SCRIPTS
     const mainJsContent = `
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -168,7 +169,6 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') ipcRenderer.
         .scanline { position: absolute; width: 100%; height: 100%; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%); background-size: 100% 2px; pointer-events: none; }
     </style></head><body><div class="card"><div class="scanline"></div><div class="logo">${safeTitle}</div><div class="sub">INITIALIZING ENGINE...</div><div class="loader"><div class="bar"></div></div></div></body></html>`;
 
-    // Important: We store the platform here so the upload route knows what extension to use
     activeJobsData[jobID] = {
         html: htmlContent, 
         main: mainJsContent,
@@ -228,14 +228,12 @@ async function processQueue() {
 
 app.get('/api/internal/download-source/:id', (req, res) => res.json(activeJobsData[req.params.id] || {}));
 
-// Handle build upload from GitHub
 app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) => {
     const jobID = req.params.id;
     const buildFile = req.file;
     const jobData = activeJobsData[jobID];
 
     if (buildFile && jobData) {
-        // DETECT EXTENSION BASED ON PLATFORM
         const extension = jobData.platform === 'android' ? '.apk' : '.exe';
         const finalName = `${jobData.safeFileName}_${jobID}${extension}`;
         
@@ -247,7 +245,7 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
         setTimeout(() => {
             const p = path.join(buildsDir, finalName);
             if (fs.existsSync(p)) fs.unlinkSync(p);
-        }, 300000); // 5 minutes to download
+        }, 300000); 
     }
     
     delete activeJobsData[jobID];
