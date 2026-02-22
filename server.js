@@ -23,7 +23,7 @@ const GITHUB_PAT = process.env.GITHUB_PAT || "YOUR_GITHUB_TOKEN_HERE";
 const GITHUB_REPO = process.env.GITHUB_REPO || "YourUsername/YourRepoName";
 
 const OR_API_KEY = process.env.OR_API_KEY || "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";
-const MODEL = "google/gemma-3-27b-it:free";
+const MODEL = "deepseek/deepseek-r1-0528:free";
 
 const gamesDir = path.join(__dirname, 'games');
 const buildsDir = path.join(__dirname, 'build_output');
@@ -257,4 +257,5 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
 app.get('/build-status/:id', (req, res) => res.json(buildJobs[req.params.id] || { error: "Not found" }));
 
 server.listen(PORT, () => console.log(`Architect Engine Running on ${PORT}`));
+
 
