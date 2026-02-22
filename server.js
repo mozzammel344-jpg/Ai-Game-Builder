@@ -23,7 +23,7 @@ const GITHUB_PAT = process.env.GITHUB_PAT || "YOUR_GITHUB_TOKEN_HERE";
 const GITHUB_REPO = process.env.GITHUB_REPO || "YourUsername/YourRepoName";
 
 const OR_API_KEY = process.env.OR_API_KEY || "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";
-const MODEL = "deepseek/deepseek-r1-0528:free";
+const MODEL = "stepfun/step-3.5-flash:free";
 
 const gamesDir = path.join(__dirname, 'games');
 const buildsDir = path.join(__dirname, 'build_output');
@@ -70,7 +70,7 @@ app.post('/generate-game', async (req, res) => {
     1. STRICTLY 2D: No WebGL, No 3D. Use 2D Canvas API.
     2. NO EXTERNAL ASSETS: Do NOT use <img> tags or URLs. Do NOT search for models. Draw everything using canvas methods (rect, arc, gradients). Use emojis for complex characters if needed.
     3. FULL SCREEN: Canvas must resize to window.innerWidth/innerHeight. No black bars.
-    4. CONTROLS: Use Keyboard (Arrow keys/WASD) or Mouse only. Do NOT add mobile buttons or on-screen D-pads.
+    4. CONTROLS: Use Keyboard (Arrow keys/WASD) Mouse and mobile touch. Do NOT add mobile buttons or on-screen D-pads.
     5. NO EXIT BUTTON: Do not include an exit or quit button in the UI.
     6. AUDIO SYSTEM: Use the 'Web Audio API' (AudioContext) to generate procedural sound effects (e.g., a short 'oscillator' beep for jumps, explosions, or clicks). Do NOT use .mp3 or .wav files.
     7. CODE QUALITY: Ensure the game loop is efficient. If updating code, preserve existing logic unless told otherwise.`;
@@ -257,5 +257,6 @@ app.post('/api/internal/upload-exe/:id', uploadBuild.single('exe'), (req, res) =
 app.get('/build-status/:id', (req, res) => res.json(buildJobs[req.params.id] || { error: "Not found" }));
 
 server.listen(PORT, () => console.log(`Architect Engine Running on ${PORT}`));
+
 
 
